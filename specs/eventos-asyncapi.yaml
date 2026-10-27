@@ -1,0 +1,143 @@
+asyncapi: 2.6.0
+info:
+  title: Trotamundos - Eventos entre servicios
+  version: 0.1.0
+  description: |
+    Contrato de los eventos publicados en Kafka (ADR 002, ADR 004).
+    Diseño: Wiki, Iteración 2, paso 5 (sección 5.6).
+    Todos los eventos usan el mismo sobre (EventoDominio). La clave de partición de los
+    eventos de una reserva es "proveedor:codigo", para que Kafka los entregue en orden.
+    Los consumidores descartan eventos repetidos usando eventoId (idempotencia).
+servers:
+  local:
+    url: kafka:9092
+    protocol: kafka
+    description: Broker del prototipo (docker-compose.yml)
+channels:
+  correo.reservas-detectadas:
+    description: Reservas extraídas de correos de viaje. Fuera del alcance del prototipo.
+    subscribe:
+      summary: Publica Correo. Consumen Viajes y Analítica.
+      message:
+        $ref: '#/components/messages/ReservaDetectada'
+  viajes.reservas-registradas:
+    description: Reservas registradas en Viajes (de cualquier origen).
+    subscribe:
+      summary: Publica Viajes. Consumen Proveedores y Analítica.
+      message:
+        $ref: '#/components/messages/ReservaRegistrada'
+  proveedores.cambios-reserva:
+    description: Cambios informados por los proveedores de viaje.
+    subscribe:
+      summary: Publica Proveedores. Consumen Viajes y Analítica.
+      message:
+        oneOf:
+          - $ref: '#/components/messages/ReservaActualizada'
+          - $ref: '#/components/messages/ReservaCancelada'
+  viajes.viajes-actualizados:
+    description: Cambios en un viaje (reserva agregada, actualizada, cancelada o eliminada).
+    subscribe:
+      summary: Publica Viajes. Consumen Compartir, Comunicaciones y Analítica (fuera del prototipo).
+      message:
+        $ref: '#/components/messages/ViajeActualizado'
+components:
+  messages:
+    ReservaDetectada:
+      name: ReservaDetectada
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/Sobre'
+          - type: object
+            properties:
+              datos:
+                type: object
+                required: [tipo, proveedor, codigo, fechaInicio, fechaFin, destino]
+                properties:
+                  tipo: { type: string, enum: [VUELO, HOTEL, AUTO] }
+                  proveedor: { type: string }
+                  codigo: { type: string }
+                  fechaInicio: { type: string, format: date-time }
+                  fechaFin: { type: string, format: date-time }
+                  origen: { type: string }
+                  destino: { type: string }
+                  detalles: { type: object, additionalProperties: true }
+    ReservaRegistrada:
+      name: ReservaRegistrada
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/Sobre'
+          - type: object
+            properties:
+              datos:
+                type: object
+                required: [reservaId, tipo, proveedor, codigo]
+                properties:
+                  reservaId: { type: string, format: uuid }
+                  tipo: { type: string, enum: [VUELO, HOTEL, AUTO] }
+                  proveedor: { type: string }
+                  codigo: { type: string }
+    ReservaActualizada:
+      name: ReservaActualizada
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/Sobre'
+          - type: object
+            properties:
+              datos:
+                type: object
+                required: [proveedor, codigo, cambios]
+                properties:
+                  proveedor: { type: string }
+                  codigo: { type: string }
+                  cambios:
+                    type: object
+                    description: Campos modificados, con los nombres del modelo común (fechaInicio, fechaFin, puerta...).
+                    additionalProperties: true
+    ReservaCancelada:
+      name: ReservaCancelada
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/Sobre'
+          - type: object
+            properties:
+              datos:
+                type: object
+                required: [proveedor, codigo]
+                properties:
+                  proveedor: { type: string }
+                  codigo: { type: string }
+                  motivo: { type: string }
+    ViajeActualizado:
+      name: ViajeActualizado
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/Sobre'
+          - type: object
+            properties:
+              datos:
+                type: object
+                required: [viajeId, reservaId, cambio]
+                properties:
+                  viajeId: { type: string, format: uuid }
+                  reservaId: { type: string, format: uuid }
+                  cambio:
+                    type: string
+                    enum: [RESERVA_AGREGADA, RESERVA_ACTUALIZADA, RESERVA_CANCELADA, RESERVA_ELIMINADA]
+  schemas:
+    Sobre:
+      type: object
+      required: [eventoId, tipo, ocurridoEn, usuarioId, datos]
+      properties:
+        eventoId:
+          type: string
+          format: uuid
+          description: Identificador único; permite descartar eventos repetidos.
+        tipo:
+          type: string
+        ocurridoEn:
+          type: string
+          format: date-time
+        usuarioId:
+          type: string
+        datos:
+          type: object

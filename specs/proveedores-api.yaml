@@ -1,0 +1,79 @@
+openapi: 3.0.3
+info:
+  title: Trotamundos - API del servicio Proveedores
+  version: 0.1.0
+  description: |
+    Contrato REST del servicio Proveedores (prototipo).
+    Diseño: Wiki, Iteración 2, paso 5 (sección 5.5) y diagrama de secuencia 6.3.
+    Cada proveedor envía sus notificaciones en su propio formato; el adaptador
+    correspondiente las traduce al modelo común (ADR 007).
+servers:
+  - url: http://localhost:8082
+tags:
+  - name: Webhooks
+    description: Notificaciones enviadas por los proveedores de viaje (RF-09).
+  - name: Monitoreo
+    description: Consulta de las reservas monitoreadas (apoyo para la demostración).
+paths:
+  /v1/webhooks/{proveedor}:
+    post:
+      tags: [Webhooks]
+      operationId: recibirNotificacion
+      summary: Recibe una actualización o cancelación desde un proveedor.
+      parameters:
+        - name: proveedor
+          in: path
+          required: true
+          description: Identificador del proveedor (por ejemplo, aerolinea-demo u hotel-demo).
+          schema:
+            type: string
+        - name: X-Clave-Proveedor
+          in: header
+          required: true
+          description: Clave secreta asignada a cada proveedor.
+          schema:
+            type: string
+      requestBody:
+        required: true
+        description: Notificación en el formato propio del proveedor.
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '202':
+          description: Notificación aceptada. Se procesa de forma asíncrona.
+        '400':
+          description: Proveedor desconocido o notificación con formato inválido.
+        '401':
+          description: Clave del proveedor inválida.
+  /v1/reservas-monitoreadas:
+    get:
+      tags: [Monitoreo]
+      operationId: listarReservasMonitoreadas
+      summary: Lista las reservas que el servicio está monitoreando.
+      responses:
+        '200':
+          description: Reservas monitoreadas.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ReservaMonitoreada'
+components:
+  schemas:
+    ReservaMonitoreada:
+      type: object
+      required: [reservaId, usuarioId, proveedor, codigo]
+      properties:
+        reservaId:
+          type: string
+          format: uuid
+        usuarioId:
+          type: string
+        proveedor:
+          type: string
+        codigo:
+          type: string

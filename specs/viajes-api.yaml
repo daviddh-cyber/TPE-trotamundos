@@ -1,0 +1,201 @@
+openapi: 3.0.3
+info:
+  title: Trotamundos - API del servicio Viajes
+  version: 0.1.0
+  description: |
+    Contrato REST del servicio Viajes (prototipo).
+    Diseño: Wiki, Iteración 2, paso 5 (sección 5.5).
+    En el prototipo no hay API Gateway ni proveedor de identidad: el usuario se identifica
+    con el header X-Usuario-Id, que en producción completa el gateway a partir del token.
+servers:
+  - url: http://localhost:8081
+tags:
+  - name: Viajes
+    description: Consultas del panel del viajero (RF-13, RE-3).
+  - name: Reservas
+    description: Gestión manual de reservas (RF-12).
+paths:
+  /v1/viajes:
+    get:
+      tags: [Viajes]
+      operationId: listarViajes
+      summary: Lista los viajes activos del usuario, con sus reservas.
+      parameters:
+        - $ref: '#/components/parameters/UsuarioId'
+      responses:
+        '200':
+          description: Viajes activos del usuario.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Viaje'
+  /v1/viajes/{id}:
+    get:
+      tags: [Viajes]
+      operationId: obtenerViaje
+      summary: Detalle de un viaje del usuario.
+      parameters:
+        - $ref: '#/components/parameters/UsuarioId'
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: El viaje con sus reservas.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Viaje'
+        '404':
+          description: El viaje no existe o no pertenece al usuario.
+  /v1/reservas:
+    post:
+      tags: [Reservas]
+      operationId: crearReserva
+      summary: Alta manual de una reserva. Se agrupa automáticamente en un viaje.
+      parameters:
+        - $ref: '#/components/parameters/UsuarioId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NuevaReserva'
+      responses:
+        '201':
+          description: Reserva creada y asignada a un viaje.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Reserva'
+        '400':
+          description: Datos inválidos.
+  /v1/reservas/{id}:
+    delete:
+      tags: [Reservas]
+      operationId: eliminarReserva
+      summary: Baja manual de una reserva.
+      parameters:
+        - $ref: '#/components/parameters/UsuarioId'
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Reserva eliminada.
+        '404':
+          description: La reserva no existe o no pertenece al usuario.
+components:
+  parameters:
+    UsuarioId:
+      name: X-Usuario-Id
+      in: header
+      required: true
+      description: Identificador del usuario (en producción lo agrega el API Gateway).
+      schema:
+        type: string
+  schemas:
+    TipoReserva:
+      type: string
+      enum: [VUELO, HOTEL, AUTO]
+    EstadoReserva:
+      type: string
+      enum: [CONFIRMADA, PENDIENTE_REVISION, CANCELADA]
+    EstadoViaje:
+      type: string
+      enum: [ACTIVO, ARCHIVADO]
+    NuevaReserva:
+      type: object
+      required: [tipo, proveedor, codigo, fechaInicio, fechaFin, destino]
+      properties:
+        tipo:
+          $ref: '#/components/schemas/TipoReserva'
+        proveedor:
+          type: string
+          description: Identificador del proveedor (por ejemplo, aerolinea-demo).
+          example: aerolinea-demo
+        codigo:
+          type: string
+          description: Código de la reserva en el proveedor.
+          example: ABC123
+        fechaInicio:
+          type: string
+          format: date-time
+          example: '2026-11-10T08:00:00Z'
+        fechaFin:
+          type: string
+          format: date-time
+          example: '2026-11-10T10:30:00Z'
+        origen:
+          type: string
+          example: Buenos Aires
+        destino:
+          type: string
+          example: Bariloche
+        detalles:
+          type: object
+          description: Datos propios del tipo de reserva (ADR 006).
+          additionalProperties: true
+    Reserva:
+      type: object
+      required: [id, tipo, proveedor, codigo, fechaInicio, fechaFin, destino, estado]
+      properties:
+        id:
+          type: string
+          format: uuid
+        tipo:
+          $ref: '#/components/schemas/TipoReserva'
+        proveedor:
+          type: string
+        codigo:
+          type: string
+        fechaInicio:
+          type: string
+          format: date-time
+        fechaFin:
+          type: string
+          format: date-time
+        origen:
+          type: string
+        destino:
+          type: string
+        estado:
+          $ref: '#/components/schemas/EstadoReserva'
+        detalles:
+          type: object
+          additionalProperties: true
+        ultimaActualizacion:
+          type: string
+          format: date-time
+    Viaje:
+      type: object
+      required: [id, nombre, destino, fechaInicio, fechaFin, estado, reservas]
+      properties:
+        id:
+          type: string
+          format: uuid
+        nombre:
+          type: string
+          example: Viaje a Bariloche
+        destino:
+          type: string
+        fechaInicio:
+          type: string
+          format: date
+        fechaFin:
+          type: string
+          format: date
+        estado:
+          $ref: '#/components/schemas/EstadoViaje'
+        reservas:
+          type: array
+          items:
+            $ref: '#/components/schemas/Reserva'

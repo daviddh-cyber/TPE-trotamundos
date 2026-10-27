@@ -1,0 +1,10 @@
+# Compilación
+target/
+
+# Editores
+.idea/
+*.iml
+.vscode/
+
+# Sistema
+.DS_Store
