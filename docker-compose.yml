@@ -1,0 +1,85 @@
+# Prototipo de Trotamundos: Kafka + servicios Viajes y Proveedores, cada uno con su base de datos.
+# Uso: docker compose up --build
+services:
+
+  # ADR 004: broker de eventos (un solo nodo, modo KRaft, sin ZooKeeper)
+  kafka:
+    image: apache/kafka:3.8.0
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_NUM_PARTITIONS: 3
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 > /dev/null 2>&1"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 15s
+
+  # ADR 001: una base de datos por servicio
+  db-viajes:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: viajes
+      POSTGRES_USER: viajes
+      POSTGRES_PASSWORD: viajes
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U viajes -d viajes"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  db-proveedores:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: proveedores
+      POSTGRES_USER: proveedores
+      POSTGRES_PASSWORD: proveedores
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U proveedores -d proveedores"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  viajes:
+    build:
+      context: .
+      dockerfile: servicios/viajes/Dockerfile
+    environment:
+      DB_URL: jdbc:postgresql://db-viajes:5432/viajes
+      DB_USER: viajes
+      DB_PASSWORD: viajes
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+    ports:
+      - "8081:8081"
+    depends_on:
+      db-viajes:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+
+  proveedores:
+    build:
+      context: .
+      dockerfile: servicios/proveedores/Dockerfile
+    environment:
+      DB_URL: jdbc:postgresql://db-proveedores:5432/proveedores
+      DB_USER: proveedores
+      DB_PASSWORD: proveedores
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+    ports:
+      - "8082:8082"
+    depends_on:
+      db-proveedores:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
