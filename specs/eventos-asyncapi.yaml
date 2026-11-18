@@ -4,7 +4,7 @@ info:
   version: 0.1.0
   description: |
     Contrato de los eventos publicados en Kafka (ADR 002, ADR 004).
-    Diseño: Wiki, Iteración 2, paso 5 (sección 5.6).
+    Diseño: Wiki, Iteración 2, paso 5 (sección 5.6) e Iteración 5, paso 5 (sección 5.3).
     Todos los eventos usan el mismo sobre (EventoDominio). La clave de partición de los
     eventos de una reserva es "proveedor:codigo", para que Kafka los entregue en orden.
     Los consumidores descartan eventos repetidos usando eventoId (idempotencia).
@@ -40,6 +40,12 @@ channels:
       summary: Publica Viajes. Consumen Compartir, Comunicaciones y Analítica (fuera del prototipo).
       message:
         $ref: '#/components/messages/ViajeActualizado'
+  asistente.casos-derivados:
+    description: Casos que el asistente deriva a la agencia, con la confirmación del usuario (RF-27, RF-28). La clave de partición es usuarioId.
+    subscribe:
+      summary: Publica Asistente. Consumen Comunicaciones y Analítica (fuera del prototipo).
+      message:
+        $ref: '#/components/messages/CasoDerivado'
 components:
   messages:
     ReservaDetectada:
@@ -123,6 +129,26 @@ components:
                   cambio:
                     type: string
                     enum: [RESERVA_AGREGADA, RESERVA_ACTUALIZADA, RESERVA_CANCELADA, RESERVA_ELIMINADA]
+    CasoDerivado:
+      name: CasoDerivado
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/Sobre'
+          - type: object
+            properties:
+              datos:
+                type: object
+                required: [conversacionId, motivo, resumen]
+                properties:
+                  conversacionId: { type: string, format: uuid }
+                  reservaId:
+                    type: string
+                    format: uuid
+                    description: Reserva relacionada, si la hay (fuera del prototipo).
+                  motivo: { type: string }
+                  resumen:
+                    type: string
+                    description: Resumen de la conversación, para que la agencia no tenga que volver a pedir datos (US-4).
   schemas:
     Sobre:
       type: object

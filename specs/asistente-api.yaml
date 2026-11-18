@@ -1,0 +1,181 @@
+openapi: 3.0.3
+info:
+  title: Trotamundos - API del servicio Asistente
+  version: 0.1.0
+  description: |
+    Contrato REST del asistente virtual (prototipo).
+    Diseño: Wiki, Iteración 5, paso 5 (sección 5.3) e Iteración 6.
+    En el prototipo no hay API Gateway ni proveedor de identidad: el usuario se identifica
+    con el header X-Usuario-Id, que en producción completa el gateway a partir del token.
+    En producción, la respuesta a un mensaje se envía por partes (Server-Sent Events);
+    en el prototipo se envía completa.
+servers:
+  - url: http://localhost:8083
+tags:
+  - name: Conversaciones
+    description: Conversaciones con el asistente (RF-23 a RF-31).
+paths:
+  /v1/conversaciones:
+    post:
+      tags: [Conversaciones]
+      operationId: iniciarConversacion
+      summary: Inicia una conversación.
+      parameters:
+        - $ref: '#/components/parameters/UsuarioId'
+      responses:
+        '201':
+          description: Conversación creada.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Conversacion'
+    get:
+      tags: [Conversaciones]
+      operationId: listarConversaciones
+      summary: Historial de conversaciones del usuario (RF-31).
+      parameters:
+        - $ref: '#/components/parameters/UsuarioId'
+      responses:
+        '200':
+          description: Conversaciones del usuario, de la más reciente a la más antigua.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Conversacion'
+  /v1/conversaciones/{id}/mensajes:
+    post:
+      tags: [Conversaciones]
+      operationId: enviarMensaje
+      summary: Envía un mensaje al asistente y devuelve su respuesta (RF-23).
+      parameters:
+        - $ref: '#/components/parameters/UsuarioId'
+        - $ref: '#/components/parameters/ConversacionId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NuevoMensaje'
+      responses:
+        '200':
+          description: Respuesta del asistente. Si propone una acción que modifica algo, la devuelve como pendiente de confirmación.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RespuestaAsistente'
+        '400':
+          description: Mensaje vacío.
+        '403':
+          description: El usuario está bloqueado temporalmente por intentos de manipulación (SE-4).
+        '404':
+          description: La conversación no existe o no pertenece al usuario.
+  /v1/conversaciones/{id}/acciones/{accionId}/confirmacion:
+    post:
+      tags: [Conversaciones]
+      operationId: confirmarAccion
+      summary: El usuario confirma o rechaza una acción pendiente (RF-28, SE-5).
+      parameters:
+        - $ref: '#/components/parameters/UsuarioId'
+        - $ref: '#/components/parameters/ConversacionId'
+        - name: accionId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Confirmacion'
+      responses:
+        '200':
+          description: Resultado de la acción.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RespuestaAsistente'
+        '404':
+          description: La acción no existe o no pertenece al usuario.
+        '409':
+          description: La acción ya fue resuelta o venció (10 minutos).
+components:
+  parameters:
+    UsuarioId:
+      name: X-Usuario-Id
+      in: header
+      required: true
+      description: Identificador del usuario (en producción lo agrega el API Gateway).
+      schema:
+        type: string
+    ConversacionId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+  schemas:
+    Conversacion:
+      type: object
+      required: [id, iniciadaEn, cantidadMensajes]
+      properties:
+        id:
+          type: string
+          format: uuid
+        iniciadaEn:
+          type: string
+          format: date-time
+        cantidadMensajes:
+          type: integer
+    NuevoMensaje:
+      type: object
+      required: [texto]
+      properties:
+        texto:
+          type: string
+          minLength: 1
+          maxLength: 2000
+          example: ¿Cómo está mi vuelo?
+    OrigenRespuesta:
+      type: string
+      description: |
+        CAMINO_RAPIDO: consulta de estado respondida con una plantilla, sin LLM (ADR 017).
+        MODELO: respuesta armada a partir de la interpretación del modelo de lenguaje.
+        ACCION: resultado de una acción confirmada por el usuario.
+      enum: [CAMINO_RAPIDO, MODELO, ACCION]
+    AccionPendiente:
+      type: object
+      required: [id, herramienta, descripcion, venceEn]
+      properties:
+        id:
+          type: string
+          format: uuid
+        herramienta:
+          type: string
+          example: derivarCaso
+        descripcion:
+          type: string
+          description: Texto armado por el código (no por el modelo) que describe exactamente qué se va a hacer.
+        venceEn:
+          type: string
+          format: date-time
+    RespuestaAsistente:
+      type: object
+      required: [texto, origen]
+      properties:
+        texto:
+          type: string
+        origen:
+          $ref: '#/components/schemas/OrigenRespuesta'
+        accionPendiente:
+          $ref: '#/components/schemas/AccionPendiente'
+    Confirmacion:
+      type: object
+      required: [confirmada]
+      properties:
+        confirmada:
+          type: boolean
