@@ -18,6 +18,21 @@ un proveedor de viaje avisa un cambio en una reserva, y el cambio llega al panel
 5. **Viajes** consume el evento (descartando repetidos), actualiza la reserva y publica `ViajeActualizado`.
 6. El panel (`GET /v1/viajes`) muestra la reserva actualizada.
 
+### Asistente virtual (2da entrega)
+
+Implementa el servicio **Asistente** de las Iteraciones 5 y 6 de la wiki, **sin modificar Viajes ni Proveedores**:
+el asistente usa la misma API pública que la app del viajero (IA-7, ADR 014).
+
+1. **Camino rápido** (ADR 017): las consultas de estado ("¿cómo está mi vuelo?") se responden con una plantilla
+   armada con los datos de Viajes, sin consultar al modelo de lenguaje.
+2. **El modelo propone, el orquestador decide** (ADR 015): el resto de los mensajes los interpreta el modelo,
+   que solo propone herramientas. El orquestador valida cada propuesta antes de ejecutarla.
+3. **Confirmación** (RF-28, SE-5): derivar el caso a la agencia queda pendiente hasta que el usuario lo confirma
+   con otra petición. Recién ahí se publica el evento `CasoDerivado` en Kafka.
+4. **Defensa en profundidad** (ADR 019): al modelo no le llegan los códigos de reserva ni datos sensibles;
+   una propuesta con un usuario ajeno se rechaza; cada intento de manipulación se audita, y con 3 intentos
+   en 1 hora el asistente se bloquea para ese usuario.
+
 ## Trazabilidad con la arquitectura
 
 | Elemento del prototipo | Decisión o requerimiento |
@@ -32,6 +47,12 @@ un proveedor de viaje avisa un cambio en una reserva, y el cambio llega al panel
 | `EventoProcesado` (Viajes) y control por `reservaId` (Proveedores) | Idempotencia (Iteración 2, sección 5.6) |
 | `AgrupacionService` | RF-13, supuesto S-14 |
 | Clave por proveedor en los webhooks | Riesgo RI-6 |
+| Servicio `asistente`, que llama a Viajes por su API pública | ADR 014 (IA-7: sin cambios en Viajes ni Proveedores) |
+| `Orquestador` + `RegistroHerramientas` + validación de las propuestas | ADR 015 (el modelo propone, el orquestador decide) |
+| Interfaz `ModeloLenguaje` con la implementación `MotorReglas` | ADR 016 (Bedrock detrás de un adaptador) |
+| `MotorReglas.esConsultaDeEstado` + `PlantillasRespuesta` | ADR 017 (camino rápido sin LLM) |
+| `PoliticaConfirmacion`, `FiltroDatosSensibles`, `DetectorManipulacion`, `AuditoriaSeguridad` | ADR 019 (defensa en profundidad) |
+| Evento `CasoDerivado` en `asistente.casos-derivados` | RF-27, US-4 (Iteración 5, decisión 4.5) |
 
 ## Estructura
 
@@ -39,12 +60,15 @@ un proveedor de viaje avisa un cambio en una reserva, y el cambio llega al panel
 specs/                       Contratos (se escriben antes que el código)
   viajes-api.yaml            OpenAPI del servicio Viajes
   proveedores-api.yaml       OpenAPI del servicio Proveedores
+  asistente-api.yaml         OpenAPI del servicio Asistente
   eventos-asyncapi.yaml      AsyncAPI de los eventos en Kafka
 servicios/
   viajes/                    Servicio Viajes (puerto 8081)
   proveedores/               Servicio Proveedores (puerto 8082)
-scripts/demo.sh              Demostración del recorrido completo
-docker-compose.yml           Kafka + 2 PostgreSQL + los 2 servicios
+  asistente/                 Servicio Asistente (puerto 8083)
+scripts/demo.sh              Demostración del recorrido de actualización de reservas
+scripts/demo-asistente.sh    Demostración del asistente virtual
+docker-compose.yml           Kafka + 2 PostgreSQL + los 3 servicios
 ```
 
 Cada servicio genera en el build las interfaces de sus controladores a partir de su spec OpenAPI
@@ -59,12 +83,13 @@ docker compose up --build
 ```
 
 La primera vez tarda varios minutos (descarga imágenes y dependencias). El sistema está listo cuando
-en los logs aparecen `Started ViajesApplication` y `Started ProveedoresApplication`.
+en los logs aparecen `Started ViajesApplication`, `Started ProveedoresApplication` y `Started AsistenteApplication`.
 
 En otra terminal:
 
 ```bash
 ./scripts/demo.sh
+./scripts/demo-asistente.sh
 ```
 
 Para apagarlo: `Ctrl + C` y después `docker compose down` (agregar `-v` para borrar también los datos).
@@ -74,6 +99,9 @@ Para apagarlo: `Ctrl + C` y después `docker compose down` (agregar `-v` para bo
 El prototipo acota el alcance para cumplir el plazo (restricción R-4):
 
 - **Sin API Gateway ni proveedor de identidad** (ADR 003): el usuario se identifica con el header `X-Usuario-Id`, que en producción completaría el gateway a partir del token.
-- **Solo Viajes y Proveedores**: Correo, Cuentas, Compartir, Comunicaciones y Analítica no se implementan.
+- **Solo Viajes, Proveedores y Asistente**: Correo, Cuentas, Compartir, Comunicaciones y Analítica no se implementan.
 - **Proveedores simulados**: `aerolinea-demo` y `hotel-demo`, con formatos distintos para mostrar el patrón Adaptador.
 - **Un solo nodo de Kafka y de cada base**: la replicación y el despliegue en varias regiones se diseñan en la Iteración 3, pero no se levantan localmente.
+- **Asistente sin LLM real** (deuda técnica DT-4): la única implementación de `ModeloLenguaje` es el `MotorReglas`, que reconoce los mensajes con palabras clave. Para demostrar la seguridad, simula un modelo engañado: si un mensaje nombra a otro usuario, propone consultar sus datos, y el orquestador lo rechaza.
+- **Asistente sin respuesta por partes ni conversaciones persistentes**: la respuesta se envía completa (en producción, por Server-Sent Events) y las conversaciones se guardan en memoria (en producción, en PostgreSQL).
+- **Sin reprogramaciones**: el prototipo del asistente implementa las herramientas `consultarViajes` y `derivarCaso`; la reprogramación (RF-25) requiere las operaciones nuevas de Proveedores, que se diseñan pero no se implementan.

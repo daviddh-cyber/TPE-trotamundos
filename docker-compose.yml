@@ -1,4 +1,5 @@
-# Prototipo de Trotamundos: Kafka + servicios Viajes y Proveedores, cada uno con su base de datos.
+# Prototipo de Trotamundos: Kafka + servicios Viajes y Proveedores, cada uno con su base de datos,
+# y el servicio Asistente (2da entrega), que usa la API pública de Viajes.
 # Uso: docker compose up --build
 services:
 
@@ -83,3 +84,20 @@ services:
         condition: service_healthy
       kafka:
         condition: service_healthy
+
+  # ADR 014: el asistente es un servicio más, que usa las APIs públicas de los demás.
+  # En el prototipo no tiene base de datos: guarda las conversaciones en memoria (R-4).
+  asistente:
+    build:
+      context: .
+      dockerfile: servicios/asistente/Dockerfile
+    environment:
+      VIAJES_URL: http://viajes:8081
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+    ports:
+      - "8083:8083"
+    depends_on:
+      kafka:
+        condition: service_healthy
+      viajes:
+        condition: service_started
